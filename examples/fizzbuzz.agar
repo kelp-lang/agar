@@ -1,0 +1,67 @@
+blk :main
+blk :arg
+args [string]
+end :arg
+blk :var
+%fizzbuzz fun
+%0: 0, 1, 2, 3, 4, 5, 6,..101
+end :var
+map fizzbuzz range
+end :main
+
+blk :fizzbuzz
+blk :arg
+%iteration i32
+end :arg
+blk :var
+%iteration arg
+%fizz fun
+%buzz fun
+%print fun
+end :var
+map_app iteration [fizz, buzz] %0
+add %0 "\n" %1
+app %1 %print
+end :fizzbuzz
+
+blk :buzz
+blk :arg
+i i32
+end :arg
+ret string
+blk :var
+%i arg
+end var
+mod i 3 %0
+eq %0 0 %1
+jmp_eq %1 :0 %2
+blk :0
+val ""
+end :0
+jmp_neq %1 :1 %2
+blk :1
+val "buzz"
+end :1
+val %2
+end :buzz 
+
+blk :fizz
+blk :arg
+%i i32
+end :arg
+ret string
+blk :var
+%i arg
+end :var
+mod i 5 %0
+eq %0 0 %1
+jmp_eq %1 :0 %2
+blk :0
+val ""
+end :0
+jmp_neq %1 :1 %2
+blk :1
+val "fizz"
+end :1
+val %2
+end :fizz 
