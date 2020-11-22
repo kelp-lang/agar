@@ -1,7 +1,7 @@
 use crate::blocks::Block;
 use crate::variables::Variable;
 
-pub enum Expression {
+pub enum Instruction {
     // Math
     add_i32(Variable, Variable, Variable),
     sub_i32(Variable, Variable, Variable),

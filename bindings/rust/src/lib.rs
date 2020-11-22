@@ -1,7 +1,7 @@
 pub mod functions;
 pub mod types;
 pub mod variables;
-pub mod expressions;
+pub mod instructions;
 pub mod blocks;
 
 pub struct Agar;

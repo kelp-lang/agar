@@ -1,7 +1,7 @@
 use crate::variables::Variable;
-use crate::expressions::Expression;
+use crate::instructions::Instruction;
 
 pub struct Block {
-    body: Vec<Expression>,
+    body: Vec<Instruction>,
     value: Variable,
 }
