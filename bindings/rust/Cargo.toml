@@ -1,6 +1,6 @@
 [package]
 name = "agar"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Jáchym Tomášek <jachym.tomasek@tutanota.com>"]
 edition = "2018"
 crate-type = [ "dylib" ]
@@ -10,4 +10,4 @@ license = "Apache-2.0"
 repository = "https://github.com/kelp-lang/agar"
 
 [dependencies]
-lazy_static = "1.4.0"
+#lazy_static = "1.4.0"
