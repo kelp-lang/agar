@@ -1,0 +1,11 @@
+[package]
+name = "agar"
+version = "0.0.1"
+authors = ["Jáchym Tomášek <jachym.tomasek@tutanota.com>"]
+edition = "2018"
+crate-type = [ "dylib" ]
+
+description = "Agar bindings for Rust"
+
+[dependencies]
+lazy_static = "1.4.0"

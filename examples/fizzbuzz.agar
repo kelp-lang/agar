@@ -19,7 +19,7 @@ blk :var
 %buzz fun
 %print fun
 end :var
-map_app iteration [fizz, buzz] %0
+map_app iteration [%fizz, %buzz] %0
 add %0 "\n" %1
 app %1 %print
 end :fizzbuzz
