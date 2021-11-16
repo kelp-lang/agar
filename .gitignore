@@ -1,1 +1,2 @@
-bindings/rust/target/*
+zig-cache
+zig-out
