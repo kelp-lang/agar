@@ -29,8 +29,8 @@ pub const VMEvent = enum {
     Error,
 };
 
-pub const VMError = error {
-  Illegal,
+pub const VMError = error{
+    Illegal,
 };
 
 pub const VM = struct {
@@ -46,8 +46,8 @@ pub const VM = struct {
     allocator: *std.mem.Allocator = undefined,
 
     pub fn init(self: *VM, allocator: *std.mem.Allocator) void {
-      self.allocator = allocator;
-      self.events = std.ArrayList(VMEvent).init(allocator);
+        self.allocator = allocator;
+        self.events = std.ArrayList(VMEvent).init(allocator);
     }
 
     pub fn deinit(self: *VM) void {
@@ -62,9 +62,9 @@ pub const VM = struct {
 
     /// WARNING: VM must be deinitialized aftewards
     pub fn run(self: *VM, allocator: *std.mem.Allocator) !u64 {
-      self.init(allocator);
-      while (try self.exec_instruction()){}
-      return self.exit_code;
+        self.init(allocator);
+        while (try self.exec_instruction()) {}
+        return self.exit_code;
     }
 
     pub fn exec_instruction(self: *VM) !bool {
@@ -75,7 +75,7 @@ pub const VM = struct {
                 return VMError.Illegal;
             },
             Instruction.HLT => {
-              const register = self.next_byte();
+                const register = self.next_byte();
                 self.exit_code = self.registers[register];
                 self.push_event(VMEvent.Halt);
                 return false;
@@ -87,10 +87,21 @@ pub const VM = struct {
                 return unreachable;
             },
             Instruction.JMP => {
+                const dest = self.next_doubleword();
+                self.pc = dest;
+            },
+            Instruction.JMPR => {
                 const dest_reg = self.next_byte();
                 self.pc = self.registers[dest_reg];
             },
+
             Instruction.JMPE => {
+                const dest = self.next_doubleword();
+                if (self.flags.eq) {
+                    self.pc = dest;
+                }
+            },
+            Instruction.JMPRE => {
                 const dest_reg = self.next_byte();
                 if (self.flags.eq) {
                     self.pc = self.registers[dest_reg];
@@ -245,19 +256,19 @@ pub const VM = struct {
             },
             // TODO: Proper EQ on floats (maybe allow for rounding errorr?)
             Instruction.FEQ => {
-              return undefined;
+                return undefined;
             },
             Instruction.FGT => {
-              return undefined;
+                return undefined;
             },
             Instruction.FGE => {
-              return undefined;
+                return undefined;
             },
             Instruction.FLT => {
-              return undefined;
+                return undefined;
             },
             Instruction.FLE => {
-              return undefined;
+                return undefined;
             },
             _ => {
                 self.push_event(VMEvent.Error);
@@ -278,11 +289,11 @@ pub const VM = struct {
         return (@as(u16, self.next_byte()) << 8) + @as(u16, self.next_byte());
     }
 
-    fn next_word(self: *WM) u32 {
+    fn next_word(self: *VM) u32 {
         return (@as(u32, self.next_halfword()) << 16) + @as(u32, self.next_halfword());
     }
 
-    fn next_doubleword(self: *WM) u64 {
+    fn next_doubleword(self: *VM) u64 {
         return (@as(u64, self.next_word()) << 32) + @as(u64, self.next_word());
     }
 
@@ -387,9 +398,9 @@ test "VM: equality" {
 
 test "VM: test jumping" {
     const program = [_]u8{
-        @enumToInt(Instruction.JMP), 0x00,
-        @enumToInt(Instruction.IGL),
-        @enumToInt(Instruction.HLT), 0x02,
+        @enumToInt(Instruction.JMPR), 0x00,
+        @enumToInt(Instruction.IGL),  @enumToInt(Instruction.HLT),
+        0x02,
     };
 
     const registers = [_]u64{ 0x03, 0xFF, 0x00 } ++ ([_]u64{0} ** 29);
@@ -403,22 +414,20 @@ test "VM: test jumping" {
 }
 
 test "VM: test conditional jumping" {
-  const program = [_]u8{
-    @enumToInt(Instruction.EQ), 0x00, 0x01,
-    @enumToInt(Instruction.JMPE), 0x02,
-    @enumToInt(Instruction.IGL),
-    @enumToInt(Instruction.NEQ), 0x00, 0x01,
-    @enumToInt(Instruction.JMPE), 0x03,
-    @enumToInt(Instruction.HLT), 0x05,
-    @enumToInt(Instruction.IGL),
-  };
+    const program = [_]u8{
+        @enumToInt(Instruction.EQ),    0x00,                        0x01,
+        @enumToInt(Instruction.JMPRE), 0x02,                        @enumToInt(Instruction.IGL),
+        @enumToInt(Instruction.NEQ),   0x00,                        0x01,
+        @enumToInt(Instruction.JMPRE), 0x03,                        @enumToInt(Instruction.HLT),
+        0x05,                          @enumToInt(Instruction.IGL),
+    };
 
-  const registers = [_]u64{0x5F, 0x5F, 0x06, 0x0C} ++ ([_]u64{0} ** 28);
+    const registers = [_]u64{ 0x5F, 0x5F, 0x06, 0x0C } ++ ([_]u64{0} ** 28);
 
-  var vm = VM {
-    .program = program[0..],
-    .registers = registers,
-  };
-  try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator));
-  defer vm.deinit();
+    var vm = VM{
+        .program = program[0..],
+        .registers = registers,
+    };
+    try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator));
+    defer vm.deinit();
 }
