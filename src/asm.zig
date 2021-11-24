@@ -1,7 +1,7 @@
 const std = @import("std");
 const Instruction = @import("instruction.zig").Instruction;
 
-const Assembler = struct {
+pub const Assembler = struct {
     const TagLocation = struct { location: u64, tag_name: []const u8 };
     tokens: [][][]const u8,
     allocator: *std.mem.Allocator,
@@ -87,14 +87,7 @@ const Assembler = struct {
                             try buffer.append(byte);
                         } else {
                             // Append 8 bytes of free space, as the instruction needs them reserved
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
-                            try buffer.append(0x00);
+                            try buffer.appendNTimes(0x00, 8);
                         }
                     }
                 }
@@ -106,16 +99,7 @@ const Assembler = struct {
 
     pub fn second_pass(self: *Assembler) !void {
         for (self.unresolved_tags_table.items) |unresolved_tag| {
-            const Pack = packed struct { first: u8, second: u8, third: u8, fourth: u8, fifth: u8, sixth: u8, seventh: u8, eighth: u8 };
-            const p = @bitCast(Pack, self.tag_locations_table.get(unresolved_tag.tag_name).?);
-            self.byte_buffer[unresolved_tag.location + 7] = p.first;
-            self.byte_buffer[unresolved_tag.location + 6] = p.second;
-            self.byte_buffer[unresolved_tag.location + 5] = p.third;
-            self.byte_buffer[unresolved_tag.location + 4] = p.fourth;
-            self.byte_buffer[unresolved_tag.location + 3] = p.fifth;
-            self.byte_buffer[unresolved_tag.location + 2] = p.sixth;
-            self.byte_buffer[unresolved_tag.location + 1] = p.seventh;
-            self.byte_buffer[unresolved_tag.location] = p.eighth;
+            self.byte_buffer[unresolved_tag.location..][0..8].* = std.mem.asBytes(&self.tag_locations_table.get(unresolved_tag.tag_name).?).*;
         }
     }
 
@@ -194,5 +178,5 @@ test "ASM: tag resolution" {
     try assembler.first_pass();
     try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x00, @enumToInt(Instruction.JMP), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
     try assembler.second_pass();
-    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x00, @enumToInt(Instruction.JMP), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04 })[0..], assembler.byte_buffer);
+    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x00, @enumToInt(Instruction.JMP), 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
 }
