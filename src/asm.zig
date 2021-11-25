@@ -1,5 +1,6 @@
 const std = @import("std");
 const Instruction = @import("instruction.zig").Instruction;
+const RegisterSelector = @import("vm.zig").RegisterSelector;
 
 pub const Assembler = struct {
     const TagLocation = struct { location: u64, tag_name: []const u8 };
@@ -45,10 +46,17 @@ pub const Assembler = struct {
     }
 
     fn register_to_address(self: *Assembler, ident: []const u8, location: u64) !?u8 {
-        const reg: u8 = if (std.mem.eql(u8, ident, "zero") or std.mem.eql(u8, ident, "fzero")) 0x00 else blk: {
+        const reg: u8 = if (std.mem.eql(u8, ident, "zero")) 0x00 else if (std.mem.eql(u8, ident[0..2], "sp")) sp: {
+            if (ident[3] == "@"[0]) {
+                const address = @truncate(u5, try std.fmt.parseInt(u6, ident[4..], 0));
+                break :sp @as(u8, @enumToInt(RegisterSelector.sp)) << 5 | address;
+            } else {
+                break :sp @as(u8, @enumToInt(RegisterSelector.sp_offset)) << 5 | try std.fmt.parseInt(u5, ident[1..], 0);
+            }
+            break :sp 0x00;
+        } else blk: {
             break :blk switch (ident[0]) {
-                "a"[0] | "A"[0] => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
-                "f"[0] | "F"[0] => (try std.fmt.parseInt(u8, ident[1..], 0)) + 1,
+                "a"[0] | "A"[0] => @as(u8, @enumToInt(RegisterSelector.int)) << 5 | try std.fmt.parseInt(u8, ident[1..], 0),
                 ":"[0] => {
                     try self.unresolved_tags_table.append(.{
                         .location = location,
@@ -147,11 +155,12 @@ test "ASM: String to enum translation" {
 }
 
 test "ASM: simple program translation" {
+    const intReg = @import("vm.zig").intReg;
     const assembly = "add a0 a1 a2\nhlt zero";
     var assembler = try Assembler.init(std.testing.allocator, assembly);
     defer assembler.deinit();
 
-    const test_data: []const u8 = &[_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x03, @enumToInt(Instruction.HLT), 0x00 };
+    const test_data: []const u8 = &[_]u8{ @enumToInt(Instruction.ADD), intReg(0), intReg(1), intReg(2), @enumToInt(Instruction.HLT), 0 };
 
     try assembler.first_pass();
 
@@ -171,12 +180,15 @@ test "ASM: tag generation" {
 }
 
 test "ASM: tag resolution" {
+    const intReg = @import("vm.zig").intReg;
     const assembly = "add a0 a1 zero\ntag:\njmp :tag";
     var assembler = try Assembler.init(std.testing.allocator, assembly);
     defer assembler.deinit();
 
     try assembler.first_pass();
-    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x00, @enumToInt(Instruction.JMP), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
+    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), intReg(0), intReg(1), 0, @enumToInt(Instruction.JMP), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
     try assembler.second_pass();
-    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), 0x01, 0x02, 0x00, @enumToInt(Instruction.JMP), 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
+    try std.testing.expectEqualSlices(u8, ([_]u8{ @enumToInt(Instruction.ADD), intReg(0), intReg(1), 0, @enumToInt(Instruction.JMP), 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 })[0..], assembler.byte_buffer);
 }
+
+// TODO: test stack pointer
