@@ -3,12 +3,10 @@ const ArrayList = @import("std").ArrayList;
 const I_Instruction = @import("instruction.zig").I_Instruction;
 const C_Instruction = @import("instruction.zig").C_Instruction;
 const R_Instruction = @import("instruction.zig").R_Instruction;
+const build_I_Instruction = @import("util.zig").build_I_Instruction;
+const build_C_Instruction = @import("util.zig").build_C_Instruction;
+const build_R_Instruction = @import("util.zig").build_R_Instruction;
 const Register = @import("register.zig").Register;
-
-pub fn last(comptime T: type, slice: []T) ?T {
-    if (slice.len == 0) return null;
-    return slice[slice.len - 1];
-}
 
 pub const VMEvent = enum {
     Start,
@@ -122,25 +120,25 @@ pub const VM = struct {
                 I_Instruction.REMI => {
                     self.registers[rd] = @bitCast(u64, @rem(@bitCast(i64, self.registers[rs1]), @intCast(i64, imm12)));
                 },
-                ANDI => {
-                    self.registers[rd] = self.registers[rs1] & imm12;
+                I_Instruction.ANDI => {
+                    self.registers[rd] = self.registers[rs1] & @bitCast(u12, imm12);
                 },
-                ORI => {
-                    self.registers[rd] = self.registers[rs1] | imm12;
+                I_Instruction.ORI => {
+                    self.registers[rd] = self.registers[rs1] | @bitCast(u12, imm12);
                 },
-                XORI => {
-                    self.registers[rd] = self.registers[rs1] ^ imm12;
+                I_Instruction.XORI => {
+                    self.registers[rd] = self.registers[rs1] ^ @bitCast(u12, imm12);
                 },
-                SHLI => {
-                    self.registers[rd] = self.registers[rs1] << imm12;
+                I_Instruction.SHLI => {
+                    self.registers[rd] = self.registers[rs1] <<| @bitCast(u12, imm12);
                 },
-                SHRI => {
-                    self.registers[rd] = self.registers[rs1] >> imm12;
+                I_Instruction.SHRI => {
+                    self.registers[rd] = self.registers[rs1] >> @truncate(u6, @bitCast(u12, imm12));
                 },
-                EQI => {
+                I_Instruction.EQI => {
                     self.registers[rd] = @boolToInt(self.registers[rs1] == imm12);
                 },
-                NEQI => {
+                I_Instruction.NEQI => {
                     self.registers[rd] = @boolToInt(self.registers[rs1] != imm12);
                 },
                 else => {
@@ -170,7 +168,7 @@ pub const VM = struct {
                     self.registers[rd] = @as(u64, (@bitCast(u20, imm20) << 12));
                 },
                 C_Instruction.AUIPC => {
-                    self.registers[rd] = @bitCast(u64, @bitCast(i64, @as(u64, (@bitCast(u20, imm20) << 12))) + self.pc);
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, @as(u64, (@bitCast(u20, imm20) << 12))) + @intCast(i64, self.pc));
                 },
             }
             return true;
@@ -247,21 +245,6 @@ pub const VM = struct {
         };
     }
 };
-
-pub fn build_R_Instruction(opcode: R_Instruction, rd: u5, rs1: u5, rs2: u5) u32 {
-    const r_ins = (@intCast(u32, @enumToInt(opcode)) << 2) | (@intCast(u32, rd) << 17) | (@intCast(u32, rs1) << 22) | (@intCast(u32, rs2) << 27);
-    return r_ins;
-}
-
-pub fn build_I_Instruction(opcode: I_Instruction, rd: u5, rs1: u5, imm12: u12) u32 {
-    const i_ins = 1 | (@intCast(u32, @enumToInt(opcode)) << 1) | (@intCast(u32, rd) << 10) | (@intCast(u32, rs1) << 15) | (@intCast(u32, imm12) << 20);
-    return i_ins;
-}
-
-pub fn build_C_Instruction(opcode: C_Instruction, rd: u5, imm20: u20) u32 {
-    const c_ins = 2 | (@intCast(u32, @enumToInt(opcode)) << 2) | (@intCast(u32, rd) << 7) | (@intCast(u32, imm20) << 12);
-    return c_ins;
-}
 
 test "VM: HLT with code 0xAF" {
     const program = [_]u32{build_R_Instruction(R_Instruction.HLT, 0, 0, 0)};

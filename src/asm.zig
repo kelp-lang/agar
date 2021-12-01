@@ -5,46 +5,12 @@ const C_Instruction = @import("instruction.zig").C_Instruction;
 const PseudoInstruction = @import("instruction.zig").PseudoInstruction;
 const Register = @import("register.zig").Register;
 const vm = @import("vm.zig");
-
-fn string_to_enum(comptime T: type, str: []const u8) ?T {
-    inline for (@typeInfo(T).Enum.fields) |enumField| {
-        if (std.mem.eql(u8, str, enumField.name)) {
-            return @field(T, enumField.name);
-        }
-    }
-    return null;
-}
-
-fn register_to_address(allocator: *std.mem.Allocator, ident: []const u8) ?u5 {
-    const lower_reg = std.ascii.allocLowerString(allocator, ident) catch "zero";
-    defer allocator.free(lower_reg);
-
-    if (string_to_enum(Register, lower_reg)) |enum_variant| {
-        return @enumToInt(enum_variant);
-    } else return null;
-}
-
-fn build_instruction(allocator: *std.mem.Allocator, comptime instruction: anytype, op1: []const u8, op2: []const u8, op3: []const u8, imm: anytype) u32 {
-    const imm64 = if (@TypeOf(instruction) != R_Instruction) blk: {
-        break :blk if (@TypeOf(imm) == []const u8) @bitCast(u64, std.fmt.parseInt(i64, imm, 0) catch @as(i64, 0)) else @bitCast(u64, @intCast(i64, imm));
-    } else undefined;
-
-    switch (@TypeOf(instruction)) {
-        C_Instruction => {
-            const ins = vm.build_C_Instruction(instruction, register_to_address(allocator, op1).?, @truncate(u20, imm64));
-            return ins;
-        },
-        I_Instruction => {
-            return vm.build_I_Instruction(instruction, register_to_address(allocator, op1).?, register_to_address(allocator, op2).?, @truncate(u12, imm64));
-        },
-        R_Instruction => {
-            return vm.build_R_Instruction(instruction, register_to_address(allocator, op1).?, register_to_address(allocator, op2).?, register_to_address(allocator, op3).?);
-        },
-        else => {
-            @compileError("Cannot call build_instruction with non-instruction enum!");
-        },
-    }
-}
+const string_to_enum = @import("util.zig").string_to_enum;
+const build_instruction = @import("util.zig").build_instruction;
+const register_to_address = @import("util.zig").register_to_address;
+const build_I_Instruction = @import("util.zig").build_I_Instruction;
+const build_C_Instruction = @import("util.zig").build_C_Instruction;
+const build_R_Instruction = @import("util.zig").build_R_Instruction;
 
 pub const Assembler = struct {
     const TagLocation = struct { location: u64, tag_name: []const u8 };
@@ -109,93 +75,92 @@ pub const Assembler = struct {
                 if (line.len < 4) {
                     std.log.err("Line: {s}\nR-Instruction must have at least 3 operands", .{line});
                 }
-                const rd = register_to_address(self.allocator, line[1]).?;
-                const rs1 = register_to_address(self.allocator, line[2]).?;
-                const rs2 = register_to_address(self.allocator, line[3]).?;
+                const rd = register_to_address(line[1]).?;
+                const rs1 = register_to_address(line[2]).?;
+                const rs2 = register_to_address(line[3]).?;
 
-                try buffer.append(vm.build_R_Instruction(r_ins, rd, rs1, rs2));
+                try buffer.append(build_R_Instruction(r_ins, rd, rs1, rs2));
             } else if (string_to_enum(I_Instruction, upper_ins)) |i_ins| {
                 if (line.len < 4) {
                     std.log.err("Line: {s}\nR-Instruction must have at least 2 operands and a offset", .{line});
                 }
-                const rd = register_to_address(self.allocator, line[1]).?;
-                const rs1 = register_to_address(self.allocator, line[2]).?;
+                const rd = register_to_address(line[1]).?;
+                const rs1 = register_to_address(line[2]).?;
                 const imm12 = @bitCast(u12, try std.fmt.parseInt(i12, line[3], 0));
 
-                try buffer.append(vm.build_I_Instruction(i_ins, rd, rs1, imm12));
+                try buffer.append(build_I_Instruction(i_ins, rd, rs1, imm12));
             } else if (string_to_enum(C_Instruction, upper_ins)) |c_ins| {
                 if (line.len < 3) {
                     std.log.err("Line: {s}\nR-Instruction must have at least 1 operand and a offset", .{line});
                 }
 
-                const rd = register_to_address(self.allocator, line[1]).?;
+                const rd = register_to_address(line[1]).?;
                 const imm20 = @bitCast(u20, try std.fmt.parseInt(i20, line[2], 0));
 
-                try buffer.append(vm.build_C_Instruction(c_ins, rd, imm20));
+                try buffer.append(build_C_Instruction(c_ins, rd, imm20));
             } else {
                 if (string_to_enum(PseudoInstruction, upper_ins)) |pseudo_ins| {
-                    const zero_reg = @enumToInt(Register.zero);
                     switch (pseudo_ins) {
                         PseudoInstruction.NOP => {
-                            try buffer.append(vm.build_I_Instruction(I_Instruction.ADDI, zero_reg, zero_reg, 0));
+                            try buffer.append(build_instruction(I_Instruction.ADDI, "zero", "zero", null, 0));
                         },
                         PseudoInstruction.J => {
                             if (line.len < 2) {
                                 std.log.err("Line: {s}\n J-pseudoinstruction must have atleast an offset", .{line});
                             }
                             const offset = try self.label_to_offset(line[1], location);
-                            try buffer.append(build_instruction(self.allocator, C_Instruction.JR, "zero", undefined, undefined, offset));
+                            try buffer.append(build_instruction(C_Instruction.JR, "zero", null, null, @bitCast(u32, offset)));
                         },
                         PseudoInstruction.JAL => {
                             if (line.len < 3) {
                                 std.log.err("Line: {s}\n JAL-pseudoinstruction must have atleast rd and offset", .{line});
                             }
                             const offset = try self.label_to_offset(line[2], location);
-                            try buffer.append(build_instruction(I_Instruction.JALR, line[1], "zero", offset));
+                            try buffer.append(build_instruction(I_Instruction.JALR, line[1], "zero", null, @bitCast(u32, offset)));
                         },
                         PseudoInstruction.CALL => {
                             if (line.len < 2) {
                                 std.log.err("Line: {s}\n CALL-pseudoinstruction must have atleast an offset", .{line});
                             }
                             const offset = try self.label_to_offset(line[2], location);
-                            const imm20 = @truncate(u20, offset >> 12);
-                            const imm12 = @truncate(u12, offset);
+                            const imm20 = @truncate(u20, @bitCast(u32, offset) >> 12);
+                            const imm12 = @truncate(u12, @bitCast(u32, offset));
 
-                            try buffer.append(build_instruction(C_Instruction.AUIPC, "ra", undefined, undefined, imm20));
-                            try buffer.append(build_instruction(I_Instruction.JALR, "ra", "ra", imm12));
+                            try buffer.append(build_instruction(C_Instruction.AUIPC, "ra", null, null, imm20));
+                            try buffer.append(build_instruction(I_Instruction.JALR, "ra", "ra", null, imm12));
                         },
                         PseudoInstruction.TAIL => {
                             if (line.len < 2) {
                                 std.log.err("Line: {s}\n TAIL-pseudoinstruction must have atleast an offset", .{line});
                             }
                             const offset = try self.label_to_offset(line[2], location);
-                            const imm20 = @truncate(u20, offset >> 12);
-                            const imm12 = @truncate(u12, offset);
+                            const imm20 = @truncate(u20, @bitCast(u32, offset) >> 12);
+                            const imm12 = @truncate(u12, @bitCast(u32, offset));
 
-                            try buffer.append(build_instruction(C_Instruction.AUIPC, "t0", undefined, undefined, imm20));
-                            try buffer.append(build_instruction(C_Instruction.JR, "t0", @as(u20, imm12)));
+                            try buffer.append(build_instruction(C_Instruction.AUIPC, "t0", null, null, imm20));
+                            try buffer.append(build_instruction(C_Instruction.JR, "t0", null, null, @as(u20, imm12)));
                         },
                         PseudoInstruction.MV => {
                             if (line.len < 3) {
                                 std.log.err("Line: {s}\n MV-pseudoinstruction must have atleast rd and rs", .{line});
                             }
 
-                            try buffer.append(build_instruction(I_Instruction.ADDI, line[1], line[2], 0));
+                            try buffer.append(build_instruction(I_Instruction.ADDI, line[1], line[2], null, 0));
                         },
                         PseudoInstruction.RET => {
-                            try buffer.append(build_instruction(C_Instruction.JR, "ra", undefined, undefined, 0));
+                            try buffer.append(build_instruction(C_Instruction.JR, "ra", null, null, 0));
                         },
                         PseudoInstruction.NOT => {
-                            try buffer.append(build_instruction(I_Instruction.XORI, line[1], line[2], -1));
+                            try buffer.append(build_instruction(I_Instruction.XORI, line[1], line[2], null, @bitCast(u32, @as(i32, -1))));
                         },
                         PseudoInstruction.NEG => {
-                            try buffer.append(build_instruction(R_Instruction.SUB, line[1], "zero", line[2]));
+                            try buffer.append(build_instruction(R_Instruction.SUB, line[1], "zero", line[2], null));
                         },
                         PseudoInstruction.GT => {
-                            try buffer.append(build_instruction(R_Instruction.LT, line[1], line[3], line[2]));
+                            try buffer.append(build_instruction(R_Instruction.LT, line[1], line[3], line[2], null));
                         },
                         PseudoInstruction.LE => {
-                            try buffer.append(build_instruction(R_Instruction.GE, line[1], line[3], line[2]));
+                            try buffer.append(build_instruction(R_Instruction.GE, line[1], line[3], line[2], null));
                         },
                         else => return undefined,
                     }
@@ -271,8 +236,8 @@ test "ASM: simple program translation" {
     defer assembler.deinit();
 
     const test_data: []const u32 = &[_]u32{
-        vm.build_R_Instruction(R_Instruction.ADD, @enumToInt(Register.a0), @enumToInt(Register.a1), @enumToInt(Register.a2)),
-        vm.build_R_Instruction(R_Instruction.HLT, @enumToInt(Register.zero), @enumToInt(Register.zero), @enumToInt(Register.zero)),
+        build_R_Instruction(R_Instruction.ADD, @enumToInt(Register.a0), @enumToInt(Register.a1), @enumToInt(Register.a2)),
+        build_R_Instruction(R_Instruction.HLT, @enumToInt(Register.zero), @enumToInt(Register.zero), @enumToInt(Register.zero)),
     };
 
     try assembler.assembly_pass();
@@ -283,8 +248,8 @@ test "ASM: simple program translation" {
 test "ASM: tag resolution" {
     const assembly = "add a0 a1 zero\ntag:\nj :tag";
     const test_data: []const u32 = &[_]u32{
-        build_instruction(std.testing.allocator, R_Instruction.ADD, "a0", "a1", "zero", 0),
-        build_instruction(std.testing.allocator, C_Instruction.JR, "zero", undefined, undefined, -1),
+        build_instruction(R_Instruction.ADD, "a0", "a1", "zero", 0),
+        build_instruction(C_Instruction.JR, "zero", null, null, @bitCast(u32, @as(i32, -1))),
     };
     var assembler = try Assembler.init(std.testing.allocator, assembly);
     defer assembler.deinit();
