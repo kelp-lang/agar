@@ -1,20 +1,14 @@
 const std = @import("std");
 const ArrayList = @import("std").ArrayList;
-const Instruction = @import("instruction.zig").Instruction;
+const I_Instruction = @import("instruction.zig").I_Instruction;
+const C_Instruction = @import("instruction.zig").C_Instruction;
+const R_Instruction = @import("instruction.zig").R_Instruction;
+const Register = @import("register.zig").Register;
 
 pub fn last(comptime T: type, slice: []T) ?T {
     if (slice.len == 0) return null;
     return slice[slice.len - 1];
 }
-
-pub const RegisterSelector = enum(u3) {
-    zero,
-    int,
-    //float,
-    sp, // return stack pointer at address with the other 5 bits addressing the int register of the offset
-    sp_offset, // return stack pointer with static offset (signed 5 bits)
-    _,
-};
 
 pub const VMEvent = enum {
     Start,
@@ -26,16 +20,16 @@ pub const VMEvent = enum {
 pub const VMError = error{
     Illegal,
     OutOfMemory,
+    Todo,
 };
 
 pub const VM = struct {
     registers: [32]u64 = [_]u64{0} ** 32,
     //float_registers: [32]f64 = [_]f64{0} ** 32,
-    eq: bool = false,
-    pc: u64 = 0,
-    sp: u64 = 0,
-    program: []const u8,
+    program: []const u32,
     exit_code: u64 = 0,
+    advance: bool = true,
+    pc: u64 = 0,
     events: std.ArrayList(VMEvent) = undefined,
     event_allocator: *std.mem.Allocator = undefined,
     stack_arena: std.heap.ArenaAllocator = undefined,
@@ -61,239 +55,189 @@ pub const VM = struct {
     /// WARNING: VM must be deinitialized aftewards
     pub fn run(self: *VM, event_allocator: *std.mem.Allocator, stack_inner_allocator: *std.mem.Allocator) !u64 {
         self.init(event_allocator, stack_inner_allocator);
-        while (try self.exec_instruction()) {}
+        while (self.advance and try self.exec_instruction() and self.pc < self.program.len) {}
         return self.exit_code;
     }
 
-    pub fn exec_instruction(self: *VM) !bool {
-        switch (@intToEnum(Instruction, self.next_byte())) {
-            Instruction.IGL => {
-                std.log.err("Virtual machine encountered illegal instruction at: {x}", .{self.pc});
-                self.push_event(VMEvent.Error);
-                return VMError.Illegal;
-            },
-            Instruction.HLT => {
-                const address = self.next_byte();
-                self.exit_code = self.get_register(address);
-                self.push_event(VMEvent.Halt);
-                return false;
-            },
-            Instruction.CNW => {
-                const dest_address = self.next_byte();
-                const num = self.next_word();
-                self.set_register(dest_address, @as(u64, num));
-            },
-            Instruction.CND => {
-                const dest_address = self.next_byte();
-                const num = self.next_doubleword();
-                self.set_register(dest_address, num);
-            },
-            Instruction.JMP => {
-                const dest = self.next_doubleword();
-                self.pc = dest;
-            },
-            Instruction.JMPR => {
-                const dest_address = self.next_byte();
-                self.pc = self.get_register(dest_address);
-            },
-
-            Instruction.JMPE => {
-                const dest = self.next_doubleword();
-                if (self.eq) {
-                    self.pc = dest;
-                }
-            },
-            Instruction.JMPRE => {
-                const dest_address = self.next_byte();
-                if (self.eq) {
-                    self.pc = self.get_register(dest_address);
-                }
-            },
-            Instruction.EQ => {
-                const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) == self.get_register(add_b);
-            },
-            Instruction.NEQ => {
-                 const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) != self.get_register(add_b);
-            },
-            Instruction.GT => {
-                const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) > self.get_register(add_b);
-            },
-            Instruction.GE => {
-                const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) >= self.get_register(add_b);
-            },
-            Instruction.LT => {
-                const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) < self.get_register(add_b);
-            },
-            Instruction.LE => {
-               const add_a = self.next_byte();
-                const add_b = self.next_byte();
-                self.eq = self.get_register(add_a) <= self.get_register(add_b);
-            },
-            Instruction.ADD => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @bitCast(i64, self.get_register(a_add)) + @bitCast(i64, self.get_register(b_add))));
-            },
-            Instruction.SUB => {
-               const result_add = self.next_byte();
-               const a_add = self.next_byte();
-               const b_add = self.next_byte();
-               self.set_register(result_add, @bitCast(u64, @bitCast(i64, self.get_register(a_add)) - @bitCast(i64, self.get_register(b_add))));
-            },
-            Instruction.MUL => {
-               const result_add = self.next_byte();
-               const a_add = self.next_byte();
-               const b_add = self.next_byte();
-               self.set_register(result_add, @bitCast(u64, @bitCast(i64, self.get_register(a_add)) * @bitCast(i64, self.get_register(b_add))));
-            },
-            Instruction.DIV => {
-               const result_add = self.next_byte();
-               const a_add = self.next_byte();
-               const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @divTrunc(@bitCast(i64, self.get_register(a_add)), @bitCast(i64, self.get_register(b_add)))));
-            },
-            Instruction.REM => {
-               const result_add = self.next_byte();
-               const a_add = self.next_byte();
-               const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @rem(@bitCast(i64, self.get_register(a_add)), @bitCast(i64, self.get_register(b_add)))));
-            },
-            Instruction.INC => {
-                const address = self.next_byte();
-                self.set_register(address, self.get_register(address) +| 1);
-            },
-            Instruction.DEC => {
-                const address = self.next_byte();
-                self.set_register(address, self.get_register(address) -| 1);
-            },
-            Instruction.AND => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, self.get_register(a_add) & self.get_register(b_add));
-            },
-            Instruction.OR => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, self.get_register(a_add) | self.get_register(b_add));
-            },
-            Instruction.XOR => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, self.get_register(a_add) ^ self.get_register(b_add));
-            },
-            Instruction.NOT => {
-                const result_add = self.next_byte();
-                const source_add = self.next_byte();
-                self.set_register(result_add, ~self.get_register(source_add));
-            },
-            Instruction.SHL => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add,self.get_register(a_add) << @truncate(u6, self.get_register(b_add)));
-            },
-            Instruction.SHR => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add,self.get_register(a_add) >> @truncate(u6, self.get_register(b_add)));
-            },
-            Instruction.FADD => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @bitCast(f64, self.get_register(a_add)) + @bitCast(f64, self.get_register(b_add))));
-            },
-            Instruction.FSUB => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @bitCast(f64, self.get_register(a_add)) - @bitCast(f64, self.get_register(b_add))));
-            },
-            Instruction.FMUL => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @bitCast(f64, self.get_register(a_add)) * @bitCast(f64, self.get_register(b_add))));
-            },
-            Instruction.FDIV => {
-                const result_add = self.next_byte();
-                const a_add = self.next_byte();
-                const b_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @bitCast(f64, self.get_register(a_add)) / @bitCast(f64, self.get_register(b_add))));
-            },
-            Instruction.FINT => {
-                const result_add = self.next_byte();
-                const source_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @floatToInt(i64, @bitCast(f64, self.get_register(source_add)))));
-            },
-            Instruction.INTF => {
-                const result_add = self.next_byte();
-                const source_add = self.next_byte();
-                self.set_register(result_add, @bitCast(u64, @intToFloat(f64, @bitCast(i64, self.get_register(source_add)))));
-            },
-            // TODO: Proper EQ on floats (maybe allow for rounding errorr?)
-            Instruction.FEQ => {
-                return undefined;
-            },
-            Instruction.FGT => {
-                return undefined;
-            },
-            Instruction.FGE => {
-                return undefined;
-            },
-            Instruction.FLT => {
-                return undefined;
-            },
-            Instruction.FLE => {
-                return undefined;
-            },
-            _ => {
-                self.push_event(VMEvent.Error);
-                self.exit_code = 0xFF;
-                return VMError.Illegal;
-            },
-        }
-        return true;
-    }
-
-    fn next_byte(self: *VM) u8 {
-        const result = self.program[self.pc];
+    fn next_instruction(self: *VM) u32 {
+        const next = self.program[self.pc];
         self.pc += 1;
-        return result;
+        return next;
     }
 
-    fn next_halfword(self: *VM) u16 {
-        // This is some advanced pointer magic, courtesy of Spex_guy#0444 (on discord)
-        const result = std.mem.bytesAsValue(u16, self.program[self.pc..][0..2]).*;
-        self.pc += 2;
-        return result;
-    }
+    const FIRST_BIT = 0x1;
+    const SECOND_BIT = 0x2;
+    const R_INS = 0x1FFFC;
+    const R_RD = 0x3E0000;
+    const R_RS1 = 0x7C00000;
+    const R_RS2 = 0xF8000000;
+    const C_INS = 0x7C;
+    const C_RD = 0xF80;
+    const C_i20 = 0xFFFFF000;
+    const I_INS = 0x3FE;
+    const I_RD = 0x7C00;
+    const I_RS1 = 0xF8000;
+    const I_i12 = 0xFFF00000;
 
-    fn next_word(self: *VM) u32 {
-        const result = std.mem.bytesAsValue(u32, self.program[self.pc..][0..4]).*;
-        self.pc += 4;
-        return result;
-    }
+    pub fn exec_instruction(self: *VM) !bool {
+        const instruction = self.next_instruction();
+        if (instruction & FIRST_BIT != 0) { //I-Ins
+            const opcode = @truncate(u9, (instruction & I_INS) >> 1);
+            const rd = @truncate(u5, (instruction & I_RD) >> 9);
+            const rs1 = @truncate(u5, (instruction & I_RS1) >> 15);
+            const imm12 = @bitCast(i12, @truncate(u12, (instruction & I_i12) >> 20));
 
-    fn next_doubleword(self: *VM) u64 {
-        const result = std.mem.bytesAsValue(u64, self.program[self.pc..][0..8]).*;
-        self.pc += 8;
-        return result;
+            switch (@intToEnum(I_Instruction, opcode)) {
+                I_Instruction.SLB => {},
+                I_Instruction.SLH => {},
+                I_Instruction.SLW => {},
+                I_Instruction.SLD => {},
+                I_Instruction.SSB => {},
+                I_Instruction.SSH => {},
+                I_Instruction.SSW => {},
+                I_Instruction.SSD => {},
+                I_Instruction.BEQ => {},
+                I_Instruction.BNE => {},
+                I_Instruction.BLT => {},
+                I_Instruction.BGE => {},
+                I_Instruction.BGEU => {},
+                I_Instruction.BLTU => {},
+                I_Instruction.JALR => {
+                    const dest: i64 = imm12 + @bitCast(i64, self.registers[rs1]);
+                    self.registers[rd] = self.pc + 1;
+                    self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                },
+                I_Instruction.ADDI => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) + @intCast(i64, imm12));
+                },
+                I_Instruction.SUBI => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) - @intCast(i64, imm12));
+                },
+                I_Instruction.MULI => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) * @intCast(i64, imm12));
+                },
+                I_Instruction.DIVI => {
+                    self.registers[rd] = @bitCast(u64, @divTrunc(@bitCast(i64, self.registers[rs1]), @intCast(i64, imm12)));
+                },
+                I_Instruction.REMI => {
+                    self.registers[rd] = @bitCast(u64, @rem(@bitCast(i64, self.registers[rs1]), @intCast(i64, imm12)));
+                },
+                ANDI => {
+                    self.registers[rd] = self.registers[rs1] & imm12;
+                },
+                ORI => {
+                    self.registers[rd] = self.registers[rs1] | imm12;
+                },
+                XORI => {
+                    self.registers[rd] = self.registers[rs1] ^ imm12;
+                },
+                SHLI => {
+                    self.registers[rd] = self.registers[rs1] << imm12;
+                },
+                SHRI => {
+                    self.registers[rd] = self.registers[rs1] >> imm12;
+                },
+                EQI => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] == imm12);
+                },
+                NEQI => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] != imm12);
+                },
+                else => {
+                    std.log.err("Unrecognized opcode: {any} 0b{b:x>}", .{ @intToEnum(I_Instruction, opcode), opcode });
+                    return VMError.Todo;
+                },
+            }
+            return true;
+        } else if (instruction & SECOND_BIT != 0) { //C-Ins
+            const opcode = @truncate(u5, (instruction & C_INS) >> 2);
+            const rd = @truncate(u5, (instruction & C_RD) >> 7);
+            const imm20 = @bitCast(i20, @truncate(u20, (instruction & C_i20) >> 12));
+
+            switch (@intToEnum(C_Instruction, opcode)) {
+                C_Instruction.JR => {
+                    //TODO: check this!
+                    const dest: i64 = imm20 + @bitCast(i64, self.registers[rd]);
+                    self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+
+                    // if (dest < 0) {
+                    //     self.pc = self.pc -| @truncate(u63, @bitCast(u64, dest));
+                    // } else {
+                    //     self.pc = self.pc +| @bitCast(u64, dest);
+                    // }
+                },
+                C_Instruction.LUI => {
+                    self.registers[rd] = @as(u64, (@bitCast(u20, imm20) << 12));
+                },
+                C_Instruction.AUIPC => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, @as(u64, (@bitCast(u20, imm20) << 12))) + self.pc);
+                },
+            }
+            return true;
+        } else { //R-Ins
+            const opcode = @truncate(u15, (instruction & R_INS) >> 2);
+            const rd = @truncate(u5, (instruction & R_RD) >> 17);
+            const rs1 = @truncate(u5, (instruction & R_RS1) >> 22);
+            const rs2 = @truncate(u5, (instruction & R_RS2) >> 27);
+            switch (@intToEnum(R_Instruction, opcode)) {
+                R_Instruction.IGL => {
+                    std.log.err("\nVirtual machine encountered illegal instruction {} at: {x}\n", .{ @intToEnum(R_Instruction, opcode), self.pc }); //         self.push_event(VMEvent.Error);
+                    return VMError.Illegal;
+                },
+                R_Instruction.HLT => {
+                    self.exit_code = self.registers[rs2];
+                    self.push_event(VMEvent.Halt);
+                    return false;
+                },
+                R_Instruction.ADD => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) + @bitCast(i64, self.registers[rs2]));
+                },
+                R_Instruction.SUB => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) - @bitCast(i64, self.registers[rs2]));
+                },
+                R_Instruction.MUL => {
+                    self.registers[rd] = @bitCast(u64, @bitCast(i64, self.registers[rs1]) * @bitCast(i64, self.registers[rs2]));
+                },
+                R_Instruction.DIV => {
+                    self.registers[rd] = @bitCast(u64, @divTrunc(@bitCast(i64, self.registers[rs1]), @bitCast(i64, self.registers[rs2])));
+                },
+                R_Instruction.REM => {
+                    self.registers[rd] = @bitCast(u64, @rem(@bitCast(i64, self.registers[rs1]), @bitCast(i64, self.registers[rs2])));
+                },
+                R_Instruction.AND => {
+                    self.registers[rd] = self.registers[rs1] & self.registers[rs2];
+                },
+                R_Instruction.OR => {
+                    self.registers[rd] = self.registers[rs1] | self.registers[rs2];
+                },
+                R_Instruction.XOR => {
+                    self.registers[rd] = self.registers[rs1] ^ self.registers[rs2];
+                },
+                R_Instruction.SHL => {
+                    self.registers[rd] = self.registers[rs1] >> @truncate(u6, self.registers[rs2]);
+                },
+                R_Instruction.SHR => {
+                    self.registers[rd] = self.registers[rs1] << @truncate(u6, self.registers[rs2]);
+                },
+                R_Instruction.EQ => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] == self.registers[rs2]);
+                },
+                R_Instruction.NEQ => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] != self.registers[rs2]);
+                },
+                R_Instruction.GE => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] >= self.registers[rs2]);
+                },
+                R_Instruction.LT => {
+                    self.registers[rd] = @boolToInt(self.registers[rs1] < self.registers[rs2]);
+                },
+                else => {
+                    std.log.err("Unrecognized opcode: {any} 0b{b:x>}", .{ @intToEnum(R_Instruction, opcode), opcode });
+                    return VMError.Todo;
+                },
+            }
+            return true;
+        }
     }
 
     fn resize_stack(self: *VM, new_size: u64) void {
@@ -302,62 +246,25 @@ pub const VM = struct {
             return unreachable;
         };
     }
-
-    fn get_register(self: *VM, address: u8) u64 {
-        const register_selector = 0b11100000;
-        const selected_register = (address & register_selector) >> 5;
-
-        switch (@intToEnum(RegisterSelector, selected_register)) {
-            RegisterSelector.zero => return 0x00,
-            RegisterSelector.int => {
-                return self.registers[@truncate(u5, address)];
-            },
-            //RegisterSelector.float => {
-            //    return self.float_registers[@truncate(u5, address)];
-            //},
-            RegisterSelector.sp => {
-                return self.sp -| self.registers[@truncate(u5, address)];
-            },
-            RegisterSelector.sp_offset => {
-                return self.sp -| @truncate(u5, address);
-            },
-            _ => return 0x00,
-        }
-    }
-
-    fn set_register(self: *VM, address: u8, value: u64) void {
-        const register_selector: u8 = 0b11100000;
-        const selected_register: u8 = (address & register_selector) >> 5;
-
-        switch (@intToEnum(RegisterSelector, selected_register)) {
-            RegisterSelector.zero => {},
-            RegisterSelector.int => {
-                self.registers[address & ~register_selector] = value;
-            },
-            // RegisterSelector.float => {
-            //     self.float_registers[address & ~register_selector] = @bitCast(f64, value);
-            // },
-            RegisterSelector.sp, RegisterSelector.sp_offset => {
-                self.sp = value;
-                // Resize the stack buffer if the stack pointer would leave the stack
-                // or the stack is 3 times bigger than the stack pointer
-                // TODO: Tweak those values
-                if (self.sp >= self.stack.len or self.stack.len > self.sp * 3) {
-                    self.resize_stack(value * 2);
-                }
-            },
-            _ => return,
-        }
-    }
 };
 
-pub fn intReg(index: u5) u8 {
-    const selector: u8 = @as(u8, @enumToInt(RegisterSelector.int)) << 5;
-    return selector | index;
+pub fn build_R_Instruction(opcode: R_Instruction, rd: u5, rs1: u5, rs2: u5) u32 {
+    const r_ins = (@intCast(u32, @enumToInt(opcode)) << 2) | (@intCast(u32, rd) << 17) | (@intCast(u32, rs1) << 22) | (@intCast(u32, rs2) << 27);
+    return r_ins;
 }
 
-test "VM: HLT with code 0xFF" {
-    const program = [_]u8{ @enumToInt(Instruction.HLT), intReg(0) };
+pub fn build_I_Instruction(opcode: I_Instruction, rd: u5, rs1: u5, imm12: u12) u32 {
+    const i_ins = 1 | (@intCast(u32, @enumToInt(opcode)) << 1) | (@intCast(u32, rd) << 10) | (@intCast(u32, rs1) << 15) | (@intCast(u32, imm12) << 20);
+    return i_ins;
+}
+
+pub fn build_C_Instruction(opcode: C_Instruction, rd: u5, imm20: u20) u32 {
+    const c_ins = 2 | (@intCast(u32, @enumToInt(opcode)) << 2) | (@intCast(u32, rd) << 7) | (@intCast(u32, imm20) << 12);
+    return c_ins;
+}
+
+test "VM: HLT with code 0xAF" {
+    const program = [_]u32{build_R_Instruction(R_Instruction.HLT, 0, 0, 0)};
     var vm = VM{
         .program = program[0..],
         .registers = ([_]u64{0xAF} ++ ([_]u64{0} ** 31)),
@@ -365,24 +272,24 @@ test "VM: HLT with code 0xFF" {
     vm.init(std.testing.allocator, std.testing.allocator);
     defer vm.deinit();
 
-    try std.testing.expect(!(try vm.exec_instruction()));
-    try std.testing.expect(vm.events.pop() == VMEvent.Halt);
+    try std.testing.expect(!try vm.exec_instruction());
+    try std.testing.expectEqual(VMEvent.Halt, vm.events.pop());
     try std.testing.expectEqual(@as(u64, 0xAF), vm.exit_code);
 }
 
 test "VM: ADD 0x01 0x02" {
-    const program = [_]u8{ @enumToInt(Instruction.ADD), intReg(0), intReg(1), intReg(2) };
+    const program = [_]u32{build_R_Instruction(R_Instruction.ADD, 0, 1, 2)};
     const registers = [_]u64{ 0x0, 0x4, 0x8 } ++ ([_]u64{0} ** 29);
 
     var vm = VM{ .program = program[0..] };
     vm.registers = registers;
 
     try std.testing.expect(try vm.exec_instruction());
-    try std.testing.expectEqual(@as(u64, 0x0C), vm.get_register(intReg(0)));
+    try std.testing.expectEqual(@as(u64, 0x0C), vm.registers[0]);
 }
 
 test "VM: program counter moving with ADD" {
-    const program = [_]u8{ @enumToInt(Instruction.ADD), intReg(0), intReg(1), intReg(2) };
+    const program = [_]u32{build_R_Instruction(R_Instruction.ADD, 0, 1, 2)};
     const registers = [_]u64{ 0x0, 0xFF, 0xFF } ++ ([_]u64{0} ** 29);
 
     var vm = VM{ .program = program[0..] };
@@ -391,40 +298,38 @@ test "VM: program counter moving with ADD" {
 
     try std.testing.expectEqual(@as(u64, 0), vm.pc);
     try std.testing.expect(try vm.exec_instruction());
-    try std.testing.expectEqual(@as(u64, 0x1FE), vm.get_register(intReg(0)));
-    try std.testing.expectEqual(@as(u64, 4), vm.pc);
+    try std.testing.expectEqual(@as(u64, 0x1FE), vm.registers[0]);
+    try std.testing.expectEqual(@as(u64, 1), vm.pc);
 }
 
 test "VM: execute a short program" {
-    const program = [_]u8{
-        @enumToInt(Instruction.ADD), intReg(0), intReg(1), intReg(2), //0x110 0xFF 0x11
-        @enumToInt(Instruction.MUL), intReg(2), intReg(0), intReg(1), //0x110 0xFF 0x10EF0
-        @enumToInt(Instruction.REM), intReg(1), intReg(0), intReg(2), //0x110 0x110 0x10EF0
-        @enumToInt(Instruction.HLT), 0x00,
+    const program = [_]u32{
+        build_I_Instruction(I_Instruction.ADDI, 0, 1, 0x11),
+        build_R_Instruction(R_Instruction.MUL, 2, 0, 1),
+        build_R_Instruction(R_Instruction.REM, 1, 0, 2),
+        build_R_Instruction(R_Instruction.HLT, 0, 0, 0),
     };
 
-    const registers = [_]u64{ 0x00, 0xFF, 0x11 } ++ ([_]u64{0} ** 29);
+    const registers = [_]u64{ 0x00, 0xFF } ++ ([_]u64{0} ** 30);
     var vm = VM{
         .program = program[0..],
         .registers = registers,
     };
 
-    try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator, std.testing.allocator));
+    try std.testing.expectEqual(@as(u64, 0x110), try vm.run(std.testing.allocator, std.testing.allocator));
     defer vm.deinit();
 
-    try std.testing.expectEqual(@as(u64, 0x110), vm.get_register(intReg(0)));
-    try std.testing.expectEqual(@as(u64, 0x110), vm.get_register(intReg(1)));
-    try std.testing.expectEqual(@as(u64, 0x10EF0), vm.get_register(intReg(2)));
+    try std.testing.expectEqual(@as(u64, 0x110), vm.registers[0]);
+    try std.testing.expectEqual(@as(u64, 0x110), vm.registers[1]);
+    try std.testing.expectEqual(@as(u64, 0x10EF0), vm.registers[2]);
 }
 
 test "VM: equality" {
-    const program = [_]u8{
-        @enumToInt(Instruction.EQ),  intReg(0), intReg(1),
-        @enumToInt(Instruction.NEQ), intReg(0), intReg(1),
-        @enumToInt(Instruction.GT),  intReg(0), intReg(1),
-        @enumToInt(Instruction.GE),  intReg(0), intReg(1),
-        @enumToInt(Instruction.LT),  intReg(0), intReg(1),
-        @enumToInt(Instruction.LE),  intReg(0), intReg(1),
+    const program = [_]u32{
+        build_R_Instruction(R_Instruction.EQ, 2, 0, 1),
+        build_R_Instruction(R_Instruction.NEQ, 3, 0, 1),
+        build_R_Instruction(R_Instruction.GE, 5, 0, 1),
+        build_R_Instruction(R_Instruction.LT, 6, 0, 1),
     };
 
     const registers = [_]u64{ 0xF1, 0xF1 } ++ ([_]u64{0} ** 30);
@@ -433,57 +338,46 @@ test "VM: equality" {
         .program = program[0..],
         .registers = registers,
     };
-    vm.init(std.testing.allocator, std.testing.allocator);
+    _ = try vm.run(std.testing.allocator, std.testing.allocator);
     defer vm.deinit();
 
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(true, vm.eq);
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(false, vm.eq);
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(false, vm.eq);
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(true, vm.eq);
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(false, vm.eq);
-    _ = try vm.exec_instruction();
-    try std.testing.expectEqual(true, vm.eq);
+    try std.testing.expect(@boolToInt(true) == vm.registers[2]);
+    try std.testing.expect(@boolToInt(false) == vm.registers[3]);
+    try std.testing.expect(@boolToInt(true) == vm.registers[5]);
+    try std.testing.expect(@boolToInt(false) == vm.registers[6]);
 }
 
 test "VM: test jumping" {
-    const program = [_]u8{
-        @enumToInt(Instruction.JMPR), intReg(0),
-        @enumToInt(Instruction.IGL),
-        @enumToInt(Instruction.HLT), intReg(2),
+    const program = [_]u32{
+        build_C_Instruction(C_Instruction.JR, 0, 0x02),
+        build_R_Instruction(R_Instruction.IGL, 0, 0, 0),
+        build_R_Instruction(R_Instruction.HLT, 0, 0, 0x02),
     };
-
-    const registers = [_]u64{ 0x03, 0xFF, 0x00 } ++ ([_]u64{0} ** 29);
 
     var vm = VM{
         .program = program[0..],
-        .registers = registers,
     };
     try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator, std.testing.allocator));
     defer vm.deinit();
 }
 
 test "VM: test conditional jumping" {
-    const program = [_]u8{
-        @enumToInt(Instruction.EQ),    intReg(0),                        intReg(1),
-        @enumToInt(Instruction.JMPRE), intReg(2),
-        @enumToInt(Instruction.IGL),
-        @enumToInt(Instruction.NEQ),   intReg(0),                        intReg(1),
-        @enumToInt(Instruction.JMPRE), intReg(3),
-        @enumToInt(Instruction.HLT), intReg(4),
-        @enumToInt(Instruction.IGL),
-    };
+    // TODO:
+    //std.log.alert("Unimplemented", .{});
+    // const program = [_]u8{
+    //     @enumToInt(Instruction.EQ),    intReg(0),                   intReg(1),
+    //     @enumToInt(Instruction.JMPRE), intReg(2),                   @enumToInt(Instruction.IGL),
+    //     @enumToInt(Instruction.NEQ),   intReg(0),                   intReg(1),
+    //     @enumToInt(Instruction.JMPRE), intReg(3),                   @enumToInt(Instruction.HLT),
+    //     intReg(4),                     @enumToInt(Instruction.IGL),
+    // };
 
-    const registers = [_]u64{ 0x5F, 0x5F, 0x06, 0x0C } ++ ([_]u64{0} ** 28);
+    // const registers = [_]u64{ 0x5F, 0x5F, 0x06, 0x0C } ++ ([_]u64{0} ** 28);
 
-    var vm = VM{
-        .program = program[0..],
-        .registers = registers,
-    };
-    try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator, std.testing.allocator));
-    defer vm.deinit();
+    // var vm = VM{
+    //     .program = program[0..],
+    //     .registers = registers,
+    // };
+    // try std.testing.expectEqual(@as(u64, 0x00), try vm.run(std.testing.allocator, std.testing.allocator));
+    // defer vm.deinit();
 }
