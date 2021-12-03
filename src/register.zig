@@ -1,3 +1,4 @@
+// Copyright (C) 2021 by Jáchym Tomášek
 pub const Register = enum(u5) {
     zero,
     ra,

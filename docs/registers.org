@@ -1,0 +1,10 @@
+# Registers
+| register identifier | description                      |
+|---------------------+----------------------------------|
+| zero                | register with the constant 0     |
+| ra                  | return address                   |
+| sp                  | stack pointer                    |
+| gp                  | global point                     |
+| t0-t6               | temporary registers              |
+| s0-s11              | saved registers                  |
+| a0-a8               | function arguments/return values |

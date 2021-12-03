@@ -1,3 +1,4 @@
+// Copyright (C) 2021 by Jáchym Tomášek
 const std = @import("std");
 const R_Instruction = @import("instruction.zig").R_Instruction;
 const I_Instruction = @import("instruction.zig").I_Instruction;
@@ -86,7 +87,7 @@ pub const Assembler = struct {
                 }
                 const rd = register_to_address(line[1]).?;
                 const rs1 = register_to_address(line[2]).?;
-                const imm12 = @bitCast(u12, try std.fmt.parseInt(i12, line[3], 0));
+                const imm12 = @bitCast(u12, @intCast(i12, try self.label_to_offset(line[3], location)));
 
                 try buffer.append(build_I_Instruction(i_ins, rd, rs1, imm12));
             } else if (string_to_enum(C_Instruction, upper_ins)) |c_ins| {
@@ -95,7 +96,7 @@ pub const Assembler = struct {
                 }
 
                 const rd = register_to_address(line[1]).?;
-                const imm20 = @bitCast(u20, try std.fmt.parseInt(i20, line[2], 0));
+                const imm20 = @bitCast(u20, @intCast(i20, try self.label_to_offset(line[2], location)));
 
                 try buffer.append(build_C_Instruction(c_ins, rd, imm20));
             } else {

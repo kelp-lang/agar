@@ -4,6 +4,6 @@ pub const VERSION = .{
     .hotfix = 1,
 };
 
-pub const IS_VERSION = 0;
+pub const IS_VERSION: u32 = 0;
 
 pub const FILE_MAX_SIZE = 0;

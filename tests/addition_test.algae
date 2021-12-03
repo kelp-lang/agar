@@ -1,0 +1,8 @@
+setup:
+    addi a0 zero 1
+    addi a1 zero 10
+loop:
+    addi a0 a0 1
+    blt a0 a1 :loop
+end:
+    hlt zero zero a0
