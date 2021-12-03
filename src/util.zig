@@ -1,3 +1,4 @@
+// Copyright (C) 2021 by Jáchym Tomášek
 const std = @import("std");
 const I_Instruction = @import("instruction.zig").I_Instruction;
 const C_Instruction = @import("instruction.zig").C_Instruction;
@@ -24,7 +25,10 @@ pub fn register_to_address(ident: []const u8) ?u5 {
 
     if (string_to_enum(Register, lower_reg)) |enum_variant| {
         return @enumToInt(enum_variant);
-    } else return null;
+    } else {
+        std.log.err("Unrecognized register {s}", .{ident});
+        return null;
+    }
 }
 
 pub fn build_R_Instruction(opcode: R_Instruction, rd: u5, rs1: u5, rs2: u5) u32 {

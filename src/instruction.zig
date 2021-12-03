@@ -1,3 +1,4 @@
+// Copyright (C) 2021 by Jáchym Tomášek
 pub const PseudoInstruction = enum {
     NOP, //addi zero zero zero
     J, //j offset -> jr zero offset

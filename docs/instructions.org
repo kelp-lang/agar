@@ -1,0 +1,25 @@
+#+TITLE: Instructions
+* Instruction format
+There are 32 registers in AgarVM. They're a modelled after the Risc-V architecture (but simplified)
+- the R-format for 3 operand instructions
+#+begin_src
+|0|1|2            16|17 21|22 26|27 31|
+|0|0|xxxxxxxxxxxxxxx|xxxxx|xxxxx|xxxxx|
+|-|R|opcode         |rd   |rs1  |rs2  |
+#+end_src
+- the C-format for instructions with bigger immediates
+#+begin_src
+|0|1|2   6|7  11|12                31|
+|0|1|xxxxx|xxxxx|xxxxxxxxxxxxxxxxxxxx|
+|-|C|opcod|rd   |imm20               |
+#+end_src
+- the I-format for instructions with immediates
+#+begin_src
+|0|1       9|10 14|15 19|20        31|
+|1|xxxxxxxxx|xxxxx|xxxxx|xxxxxxxxxxxx|
+|I|opcode   |rd   |rs1  |imm12       |
+#+end_src
+* Instructions
+Instructions corespond with Risc-V naming, this table will be filled
+| instruction code | usage                       | description                             |
+|------------------+-----------------------------+-----------------------------------------|

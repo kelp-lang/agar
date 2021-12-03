@@ -1,3 +1,4 @@
+// Copyright (C) 2021 by Jáchym Tomášek
 const std = @import("std");
 const ArrayList = @import("std").ArrayList;
 const I_Instruction = @import("instruction.zig").I_Instruction;
@@ -81,7 +82,7 @@ pub const VM = struct {
         const instruction = self.next_instruction();
         if (instruction & FIRST_BIT != 0) { //I-Ins
             const opcode = @truncate(u9, (instruction & I_INS) >> 1);
-            const rd = @truncate(u5, (instruction & I_RD) >> 9);
+            const rd = @truncate(u5, (instruction & I_RD) >> 10);
             const rs1 = @truncate(u5, (instruction & I_RS1) >> 15);
             const imm12 = @bitCast(i12, @truncate(u12, (instruction & I_i12) >> 20));
 
@@ -94,10 +95,30 @@ pub const VM = struct {
                 I_Instruction.SSH => {},
                 I_Instruction.SSW => {},
                 I_Instruction.SSD => {},
-                I_Instruction.BEQ => {},
-                I_Instruction.BNE => {},
-                I_Instruction.BLT => {},
-                I_Instruction.BGE => {},
+                I_Instruction.BEQ => {
+                    if (@bitCast(i64, self.registers[rd]) == @bitCast(i64, self.registers[rs1])) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
+                I_Instruction.BNE => {
+                    if (@bitCast(i64, self.registers[rd]) != @bitCast(i64, self.registers[rs1])) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
+                I_Instruction.BLT => {
+                    if (@bitCast(i64, self.registers[rd]) < @bitCast(i64, self.registers[rs1])) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
+                I_Instruction.BGE => {
+                    if (@bitCast(i64, self.registers[rd]) >= @bitCast(i64, self.registers[rs1])) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
                 I_Instruction.BGEU => {},
                 I_Instruction.BLTU => {},
                 I_Instruction.JALR => {
