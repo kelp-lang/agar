@@ -1,0 +1,72 @@
+* Inbox
+** [2021-12-12 Ne 20:40] About instructions and arcitecture
+
+[[file:~/Documents/Projects/programming/kelp/agar/fizzbuzz.algae::addi s2 t0 0]]
+I think that I was doing this all wrong. The main point of a lisp vm is to function with lists. I shouldn't go any lower. The representation of the program must be a list structure. I don't think that registers are a bad idea, but all data must be lists. Ill use registers but it'll operate on memory as well
+
+*** the point is to do lists
+all data can be represented as list structure, even code.
+all I need is a symbol table. Macros are translated away of course.
+*** sexp structure
+- function call | symbol | arg_count | arg1 | arg2 ...
+  - or tail call
+- primitive function call | opcode | arg1 | arg2 ...
+  - symbol definition | symbol | data
+  - symbol retrieval | symbol
+  - object to list | object
+  - list to object | list
+- list creation | count | item1 | item2 ...
+- vector creation | count | item1 | item2...
+- struct creation | count | item1 | item2...
+- data
+*** descs
+- item/arg is an data
+  - data is either a list or object
+  - list is an object with a pointer to next one
+  - object contains its type and data
+#+begin_src
+|0 3|4       63|
+|0xx|xxxx...xxx|
+desc  specifier
+|1|xxxx...xxxxx|
+pointer 63 bit
+#+end_src
+- specifiers
+  - function call
+    - symbol id, symbols are not saved as strings but as 59 bit ids
+  - primitive call
+    - opcode, these are 59 bit
+  - list creation
+    - length in unsigned 59 bits
+  - vector
+    - length in unsigned 59 bits
+  - struct
+    - lenght in unsigned 59 bits
+  - pointer to data
+    - po
+*** Value
+4 bits
+- types
+  - nil
+  - bool
+  - list
+    56 bit pointer to the first item
+  - vector
+    56 bit pointer to the memory
+  - struct
+  - literal int
+    56 bit signed int
+  - ref int
+    56 bit pointer to the int spec
+  - rational
+    56 bit pointer to the rational spec
+  - real
+    56 bit pointer to the real spec
+  - complex
+    56 bit pointer to the complex spec
+  - string
+    56 bit pointer to the string spec
+  - symbol (maybe)
+  - atom
+  - threadsafe atom
+  - struct

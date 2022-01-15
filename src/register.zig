@@ -2,7 +2,7 @@
 pub const Register = enum(u5) {
     zero,
     ra,
-    sp,
+    mp, //metadata pointer, can hold all register's values TODO: move the mp each time call happens
     gp,
     t0,
     t1,

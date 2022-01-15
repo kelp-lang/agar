@@ -24,7 +24,7 @@ pub const Assembler = struct {
 
     fn tokenize_line(allocator: *std.mem.Allocator, line: []const u8) !std.ArrayList([]const u8) {
         var tokens = std.ArrayList([]const u8).init(allocator);
-        var token_iterator = std.mem.tokenize(u8, line, " ");
+        var token_iterator = std.mem.tokenize(line, " ");
         while (token_iterator.next()) |token| {
             try tokens.append(token);
         }
@@ -33,7 +33,7 @@ pub const Assembler = struct {
 
     fn tokenize_file(allocator: *std.mem.Allocator, input: []const u8) !std.ArrayList([][]const u8) {
         var lines = std.ArrayList([][]const u8).init(allocator);
-        var line_iterator = std.mem.tokenize(u8, input, "\n");
+        var line_iterator = std.mem.tokenize(input, "\n");
         while (line_iterator.next()) |line| {
             try lines.append((try tokenize_line(allocator, line)).toOwnedSlice());
         }

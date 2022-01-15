@@ -87,14 +87,6 @@ pub const VM = struct {
             const imm12 = @bitCast(i12, @truncate(u12, (instruction & I_i12) >> 20));
 
             switch (@intToEnum(I_Instruction, opcode)) {
-                I_Instruction.SLB => {},
-                I_Instruction.SLH => {},
-                I_Instruction.SLW => {},
-                I_Instruction.SLD => {},
-                I_Instruction.SSB => {},
-                I_Instruction.SSH => {},
-                I_Instruction.SSW => {},
-                I_Instruction.SSD => {},
                 I_Instruction.BEQ => {
                     if (@bitCast(i64, self.registers[rd]) == @bitCast(i64, self.registers[rs1])) {
                         const dest: i64 = imm12 + @intCast(i64, self.pc);
@@ -151,7 +143,7 @@ pub const VM = struct {
                     self.registers[rd] = self.registers[rs1] ^ @bitCast(u12, imm12);
                 },
                 I_Instruction.SHLI => {
-                    self.registers[rd] = self.registers[rs1] <<| @bitCast(u12, imm12);
+                    self.registers[rd] = self.registers[rs1] << @truncate(u6, @bitCast(u12, imm12));
                 },
                 I_Instruction.SHRI => {
                     self.registers[rd] = self.registers[rs1] >> @truncate(u6, @bitCast(u12, imm12));

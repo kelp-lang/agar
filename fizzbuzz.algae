@@ -1,0 +1,54 @@
+.rodata
+    .set #list .list 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+    .set #fizz_string .string "fizz"
+    .set #buzz_string .string "buzz"
+    .set #empty_string .string ""
+
+.text
+    j :main
+
+fizz:
+    remi t0 a0 5
+    beq t0 zero :fizz_true
+    lro t1 #empty_string
+    addi a0 t1 zero
+    ret
+fizz_true:
+    lro t1 #fizz_string
+    addi a0 t1 zero
+    ret
+
+buzz:
+    remi t0 a0 3
+    beq t0 zero :buzz_true
+    lro t1 #empty_string
+    addi a0 t1 zero
+    ret
+buzz_true:
+    lro t1 #buzz_string
+    addi a0 t1 zero
+    ret
+
+fizzbuzz:
+    so mp ra 0                  ;save return address
+    call :buzz
+    create_list_item t1 a0 #tip
+    call :fizz
+    create_list_item t0 a0 t1
+    lo ra mp 0                  ;load return address back
+    ;; PRINT THE LIST at a0
+    ret
+
+main:
+    lro t0 zero #list
+    addi s0 zero 0
+    addi s2 t0 0
+    list_len s1 t0
+map_loop:
+    travel_list_by_i s2 s2 1
+    addi s0 s0 1
+    ;; This should be loading the map function with quote, but that isn't trivial
+    call :fizzbuzz
+
+    blt s0 s1 :map_loop
+    hlt zero
