@@ -4,7 +4,7 @@
 
 # What is AgarVM?
 
-Agar is a virtual machine. It comes with an assembly language.
+Agar is a register virtual machine. It comes with an assembly language.
 
 You can test agar by writting assembly and running
 

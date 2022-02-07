@@ -1,9 +1,17 @@
-// Copyright (C) 2021 by Jáchym Tomášek
+// Copyright (C) 2022 by Jáchym Tomášek
+
+// We must learn to look at problems all-sidedly, seeing the reverse as
+// well as the obverse side of things. In given conditions, a bad thing
+// can lead to good results and a good thing to bad results. 
+
 const std = @import("std");
 const vm = @import("vm.zig");
 const assm = @import("asm.zig");
+const page_manager = @import("page_manager.zig");
+const binary = @import("binary.zig");
 
 test "Test All" {
+    // Test all tests in files
     std.testing.refAllDecls(@This());
 }
 

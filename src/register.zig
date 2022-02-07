@@ -1,9 +1,12 @@
-// Copyright (C) 2021 by Jáchym Tomášek
+// Copyright (C) 2022 by Jáchym Tomášek
+
+// What we need is an enthusiastic but calm state of mind and 
+// intense but orderly work. 
+
 pub const Register = enum(u5) {
     zero,
     ra,
-    sp,
-    gp,
+    pp,
     t0,
     t1,
     t2,
@@ -32,4 +35,5 @@ pub const Register = enum(u5) {
     a6,
     a7,
     a8,
+    a9,
 };

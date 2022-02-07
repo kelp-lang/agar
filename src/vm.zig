@@ -1,4 +1,11 @@
-// Copyright (C) 2021 by Jáchym Tomášek
+// Copyright (C) 2022 by Jáchym Tomášek
+
+// Besides, it is not difficult to see that ours is a birth-time
+// and a period of transition to a new era. Spirit has broken with
+// the world it has hitherto inhabited and imagined, and is of a
+// mind to submerge it in the past, and in the labour of its own
+// transformation.
+
 const std = @import("std");
 const ArrayList = @import("std").ArrayList;
 const I_Instruction = @import("instruction.zig").I_Instruction;
@@ -8,6 +15,7 @@ const build_I_Instruction = @import("util.zig").build_I_Instruction;
 const build_C_Instruction = @import("util.zig").build_C_Instruction;
 const build_R_Instruction = @import("util.zig").build_R_Instruction;
 const Register = @import("register.zig").Register;
+const PageManager = @import("page_manager.zig");
 
 pub const VMEvent = enum {
     Start,
@@ -30,40 +38,43 @@ pub const VM = struct {
     advance: bool = true,
     pc: u64 = 0,
     events: std.ArrayList(VMEvent) = undefined,
-    event_allocator: *std.mem.Allocator = undefined,
-    stack_arena: std.heap.ArenaAllocator = undefined,
-    stack: []u8 = undefined,
+    event_allocator: std.mem.Allocator = undefined,
+    page_manager: PageManager = undefined,
 
-    pub fn init(self: *VM, event_allocator: *std.mem.Allocator, stack_inner_allocator: *std.mem.Allocator) void {
+    pub fn init(self: *VM, event_allocator: std.mem.Allocator, page_allocator: std.mem.Allocator) void {
         self.event_allocator = event_allocator;
-        self.stack_arena = std.heap.ArenaAllocator.init(stack_inner_allocator);
         self.events = std.ArrayList(VMEvent).init(event_allocator);
+        self.page_manager = PageManager.init(page_allocator);
     }
 
     pub fn deinit(self: *VM) void {
-        self.stack_arena.deinit();
         self.events.deinit();
+        self.page_manager.deinit();
     }
 
+    /// Send events to the virtual machine
     pub fn push_event(self: *VM, event: VMEvent) void {
         self.events.append(event) catch |err| {
             std.log.err("Virtual machine encountered an event array error {x}", .{err});
         };
     }
 
+    /// Run the virtual machine and stop only with IGL,HLT or running out of the program
     /// WARNING: VM must be deinitialized aftewards
-    pub fn run(self: *VM, event_allocator: *std.mem.Allocator, stack_inner_allocator: *std.mem.Allocator) !u64 {
+    pub fn run(self: *VM, event_allocator: std.mem.Allocator, stack_inner_allocator: std.mem.Allocator) !u64 {
         self.init(event_allocator, stack_inner_allocator);
         while (self.advance and try self.exec_instruction() and self.pc < self.program.len) {}
         return self.exit_code;
     }
 
+    /// Load the next instruction and increment the program counter
     fn next_instruction(self: *VM) u32 {
         const next = self.program[self.pc];
         self.pc += 1;
-        return next;
+        return std.mem.nativeToLittle(u32, next);
     }
 
+    // Setup some constants for easier masking
     const FIRST_BIT = 0x1;
     const SECOND_BIT = 0x2;
     const R_INS = 0x1FFFC;
@@ -78,23 +89,46 @@ pub const VM = struct {
     const I_RS1 = 0xF8000;
     const I_i12 = 0xFFF00000;
 
+    /// Execute one instruction
     pub fn exec_instruction(self: *VM) !bool {
         const instruction = self.next_instruction();
+        // Switch the instruction type based on the first two bits (as per documentation)
         if (instruction & FIRST_BIT != 0) { //I-Ins
+            // Mask of the useful bits, shift them to the right and then truncate bits outside the range
             const opcode = @truncate(u9, (instruction & I_INS) >> 1);
             const rd = @truncate(u5, (instruction & I_RD) >> 10);
             const rs1 = @truncate(u5, (instruction & I_RS1) >> 15);
-            const imm12 = @bitCast(i12, @truncate(u12, (instruction & I_i12) >> 20));
+            // Mask and truncate the bits and then bitcast it to a twos complement signed integer
+            const imm12: i12 = @bitCast(i12, @truncate(u12, (instruction & I_i12) >> 20));
 
             switch (@intToEnum(I_Instruction, opcode)) {
-                I_Instruction.SLB => {},
-                I_Instruction.SLH => {},
-                I_Instruction.SLW => {},
-                I_Instruction.SLD => {},
-                I_Instruction.SSB => {},
-                I_Instruction.SSH => {},
-                I_Instruction.SSW => {},
-                I_Instruction.SSD => {},
+                // Load a memory chunk into rd from page with id rs1 and offset imm12
+                I_Instruction.PLB => {
+                    self.registers[rd] = self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)];
+                },
+                I_Instruction.PLH => {
+                    // Read int in littleEndian, the architecture is strictly little endian
+                    self.registers[rd] = std.mem.readIntLittle(u16, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..2]);
+                },
+                I_Instruction.PLW => {
+                    self.registers[rd] = std.mem.readIntLittle(u32, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..4]);
+                },
+                I_Instruction.PLD => {
+                    self.registers[rd] = std.mem.readIntLittle(u64, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..8]);
+                },
+                I_Instruction.PSB => {
+                    self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)] = @truncate(u8, self.registers[rd]);
+                },
+                I_Instruction.PSH => {
+                    std.mem.writeIntLittle(u16, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..2], @truncate(u16, self.registers[rd]));
+                },
+                I_Instruction.PSW => {
+                    std.mem.writeIntLittle(u32, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..4], @truncate(u32, self.registers[rd]));
+                },
+                I_Instruction.PSD => {
+                    std.mem.writeIntLittle(u64, self.page_manager.pages.items[self.registers[rs1]][@bitCast(u12, imm12)..][0..8],  self.registers[rd]);
+
+                },
                 I_Instruction.BEQ => {
                     if (@bitCast(i64, self.registers[rd]) == @bitCast(i64, self.registers[rs1])) {
                         const dest: i64 = imm12 + @intCast(i64, self.pc);
@@ -119,8 +153,18 @@ pub const VM = struct {
                         self.pc = if (dest > 0) @intCast(u64, dest) else 0;
                     }
                 },
-                I_Instruction.BGEU => {},
-                I_Instruction.BLTU => {},
+                I_Instruction.BGEU => {
+                    if (self.registers[rd] >= self.registers[rs1]) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
+                I_Instruction.BLTU => {
+                    if (self.registers[rd] <= self.registers[rs1]) {
+                        const dest: i64 = imm12 + @intCast(i64, self.pc);
+                        self.pc = if (dest > 0) @intCast(u64, dest) else 0;
+                    }
+                },
                 I_Instruction.JALR => {
                     const dest: i64 = imm12 + @bitCast(i64, self.registers[rs1]);
                     self.registers[rd] = self.pc + 1;
@@ -151,7 +195,7 @@ pub const VM = struct {
                     self.registers[rd] = self.registers[rs1] ^ @bitCast(u12, imm12);
                 },
                 I_Instruction.SHLI => {
-                    self.registers[rd] = self.registers[rs1] <<| @bitCast(u12, imm12);
+                    self.registers[rd] = self.registers[rs1] <<| @intCast(u64, @bitCast(u12, imm12));
                 },
                 I_Instruction.SHRI => {
                     self.registers[rd] = self.registers[rs1] >> @truncate(u6, @bitCast(u12, imm12));
@@ -178,18 +222,18 @@ pub const VM = struct {
                     //TODO: check this!
                     const dest: i64 = imm20 + @bitCast(i64, self.registers[rd]);
                     self.pc = if (dest > 0) @intCast(u64, dest) else 0;
-
-                    // if (dest < 0) {
-                    //     self.pc = self.pc -| @truncate(u63, @bitCast(u64, dest));
-                    // } else {
-                    //     self.pc = self.pc +| @bitCast(u64, dest);
-                    // }
                 },
                 C_Instruction.LUI => {
                     self.registers[rd] = @as(u64, (@bitCast(u20, imm20) << 12));
                 },
                 C_Instruction.AUIPC => {
                     self.registers[rd] = @bitCast(u64, @bitCast(i64, @as(u64, (@bitCast(u20, imm20) << 12))) + @intCast(i64, self.pc));
+                },
+                C_Instruction.GP => {
+                    self.registers[rd] = self.page_manager.new_page();
+                },
+                C_Instruction.FP => {
+                    self.page_manager.release_page(self.registers[rd]);
                 },
             }
             return true;
@@ -257,13 +301,6 @@ pub const VM = struct {
             }
             return true;
         }
-    }
-
-    fn resize_stack(self: *VM, new_size: u64) void {
-        self.stack = self.stack_arena.allocator.resize(self.stack, new_size) catch {
-            std.log.err("Out of memory! When allocating space for stack!", .{});
-            return unreachable;
-        };
     }
 };
 

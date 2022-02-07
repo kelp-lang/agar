@@ -1,4 +1,10 @@
-// Copyright (C) 2021 by Jáchym Tomášek
+// Copyright (C) 2022 by Jáchym Tomášek
+
+// It is well known that when you do anything, unless you understand 
+// its actual circumstances, its nature and its relations to other things,
+// you will not know the laws governing it, or know how to do it, or be able
+// to do it well. 
+
 pub const PseudoInstruction = enum {
     NOP, //addi zero zero zero
     J, //j offset -> jr zero offset
@@ -31,28 +37,28 @@ pub const R_Instruction = enum(u17) {
     NEQ,
     GE,
     LT,
-    FADD,
-    FSUB,
-    FMUL,
-    FDIV,
-    FINT,
-    INTF,
-    FEQ,
-    FGE,
-    FLT,
+    // FADD,
+    // FSUB,
+    // FMUL,
+    // FDIV,
+    // FINT,
+    // INTF,
+    // FEQ,
+    // FGE,
+    // FLT,
     _,
 };
 
 pub const I_Instruction = enum(u9) {
-    // Stack Load/Store with offset
-    SLB,
-    SLH,
-    SLW,
-    SLD,
-    SSB,
-    SSH,
-    SSW,
-    SSD,
+    // Page Load/Store with offset
+    PLB,
+    PLH,
+    PLW,
+    PLD,
+    PSB,
+    PSH,
+    PSW,
+    PSD,
     // Branching
     BEQ,
     BNE,
@@ -81,4 +87,8 @@ pub const C_Instruction = enum(u5) {
     JR, //jr rs1 offset -> pc = pc+(rs1+offset)
     LUI,
     AUIPC,
+    GP, //get os page //gp rd
+    FP, //free os page //fp rs1
+    //FPI, //free os page immediate //fpi id
+    //SP, //set os page register
 };

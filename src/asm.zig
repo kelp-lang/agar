@@ -1,4 +1,11 @@
-// Copyright (C) 2021 by Jáchym Tomášek
+// Copyright (C) 2022 by Jáchym Tomášek
+
+// To lay down that the true shape of truth is scientific-
+// or, what is the same thing, to maintain that truth has only the
+// Notion as the element of its existence - seems, I know, to contradict
+// a view which is in our time as prevalent as it is pretentious,
+// and to go against what that view implies.
+
 const std = @import("std");
 const R_Instruction = @import("instruction.zig").R_Instruction;
 const I_Instruction = @import("instruction.zig").I_Instruction;
@@ -14,15 +21,18 @@ const build_C_Instruction = @import("util.zig").build_C_Instruction;
 const build_R_Instruction = @import("util.zig").build_R_Instruction;
 
 pub const Assembler = struct {
-    const TagLocation = struct { location: u64, tag_name: []const u8 };
+    const TagLocation = struct {
+        location: u64,
+        tag_name: []const u8,
+    };
     tokens: std.ArrayList([][]const u8),
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     unresolved_tags_table: std.ArrayList(TagLocation),
     tag_locations_table: std.StringHashMap(u64),
     instruction_buffer: []u32,
-    assembler_progress: std.Progress = std.Progress{},
 
-    fn tokenize_line(allocator: *std.mem.Allocator, line: []const u8) !std.ArrayList([]const u8) {
+    /// Split line into array of tokens by a space
+    fn tokenize_line(allocator: std.mem.Allocator, line: []const u8) !std.ArrayList([]const u8) {
         var tokens = std.ArrayList([]const u8).init(allocator);
         var token_iterator = std.mem.tokenize(u8, line, " ");
         while (token_iterator.next()) |token| {
@@ -31,7 +41,8 @@ pub const Assembler = struct {
         return tokens;
     }
 
-    fn tokenize_file(allocator: *std.mem.Allocator, input: []const u8) !std.ArrayList([][]const u8) {
+    /// Split a string into tokens
+    fn tokenize_string(allocator: std.mem.Allocator, input: []const u8) !std.ArrayList([][]const u8) {
         var lines = std.ArrayList([][]const u8).init(allocator);
         var line_iterator = std.mem.tokenize(u8, input, "\n");
         while (line_iterator.next()) |line| {
@@ -41,11 +52,11 @@ pub const Assembler = struct {
         return lines;
     }
 
-    pub fn init(allocator: *std.mem.Allocator, input: []const u8) !Assembler {
+    pub fn init(allocator: std.mem.Allocator, input: []const u8) !Assembler {
         var unresolved_tags_table = std.ArrayList(TagLocation).init(allocator);
         var tag_locations_table = std.StringHashMap(u64).init(allocator);
 
-        const lines = try tokenize_file(allocator, input);
+        const lines = try tokenize_string(allocator, input);
 
         return Assembler{
             // This also leaves the slice allocated in memory and must be freed
@@ -57,6 +68,8 @@ pub const Assembler = struct {
         };
     }
 
+    /// Parse line of tokens
+    /// Returns a slcie of instructions
     fn parse_line(self: *Assembler, line: [][]const u8, location: u64) !?[]const u32 {
         var buffer = std.ArrayList(u32).init(self.allocator);
         const ins = line[0];
@@ -87,6 +100,7 @@ pub const Assembler = struct {
                 }
                 const rd = register_to_address(line[1]).?;
                 const rs1 = register_to_address(line[2]).?;
+                //TODO: Check how int cast handles too big numbers
                 const imm12 = @bitCast(u12, @intCast(i12, try self.label_to_offset(line[3], location)));
 
                 try buffer.append(build_I_Instruction(i_ins, rd, rs1, imm12));
@@ -163,7 +177,19 @@ pub const Assembler = struct {
                         PseudoInstruction.LE => {
                             try buffer.append(build_instruction(R_Instruction.GE, line[1], line[3], line[2], null));
                         },
-                        else => return undefined,
+                        PseudoInstruction.LI => {
+                            // This pseudoinstruction expands either to one or two
+                            // instructions depending on the size of the immediate
+                            const imm = try self.label_to_offset(line[2], location);
+                            if (imm <= 2047 and imm >= -2048) {
+                                try buffer.append(build_instruction(I_Instruction.ADDI, line[1], "zero", null, @bitCast(u12, @intCast(i12, imm))));
+                            } else {
+                                const imm20 = @truncate(u20, @bitCast(u32, imm) >> 12);
+                                const imm12 = @truncate(u12, @bitCast(u32, imm));
+                                try buffer.append(build_instruction(C_Instruction.LUI, line[1], null, null, imm20));
+                                try buffer.append(build_instruction(I_Instruction.ADDI, line[1], line[1], null, imm12));
+                            }
+                        },
                     }
                 }
             }
@@ -171,6 +197,9 @@ pub const Assembler = struct {
         }
     }
 
+    /// Converts immediate to number, either a label or a immediate
+    /// Should support binary, hex and decadic numbers in '0xFFFF', '0b1111' or '9999'
+    /// And label in the ':label' format
     fn label_to_offset(self: *Assembler, token: []const u8, call_location: u64) !i32 {
         if (token[0] == ':') {
             if (self.tag_locations_table.get(token[1..])) |location| {
@@ -186,7 +215,6 @@ pub const Assembler = struct {
 
     /// Convert instructions into bytecode and scan for labels
     pub fn assembly_pass(self: *Assembler) !void {
-        const first_pass_node = try self.assembler_progress.start("Assembler first pass", self.tokens.items.len);
         var buffer = std.ArrayList(u32).init(self.allocator);
 
         for (self.tokens.items) |line| {
@@ -194,11 +222,9 @@ pub const Assembler = struct {
                 try buffer.appendSlice(parsed);
                 self.allocator.free(parsed);
             }
-            first_pass_node.completeOne();
         }
 
         self.instruction_buffer = buffer.toOwnedSlice();
-        first_pass_node.end();
     }
 
     pub fn deinit(self: *Assembler) void {
@@ -257,5 +283,3 @@ test "ASM: tag resolution" {
     try assembler.assembly_pass();
     try std.testing.expectEqualSlices(u32, test_data, assembler.instruction_buffer);
 }
-
-// TODO: test stack pointer
